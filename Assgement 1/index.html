@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>红楼梦 · 有声讲解 —— 基于AI Agent的名著讲解视频自动化剪辑</title>
+<style>
+  :root {
+    --paper: #f6f1e6;
+    --paper-deep: #ede5d2;
+    --ink: #2c2822;
+    --ink-soft: #6a6254;
+    --cinnabar: #9a2d2a;
+    --gold: #a8823c;
+    --indigo: #3f525e;
+    --border: #ded2b4;
+    --radius: 18px;
+    --shadow-soft: 0 6px 22px rgba(90, 70, 30, .09);
+    --shadow-lift: 0 18px 40px rgba(90, 70, 30, .17);
+    --ease: cubic-bezier(.22, .61, .36, 1);
+    --serif: "Noto Serif SC", "STKaiti", "KaiTi", "SimSun", serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+  body {
+    font-family: var(--serif); color: var(--ink); line-height: 1.95;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170' viewBox='0 0 170 170'%3E%3Cg fill='none' stroke='%23a8823c' stroke-opacity='.055' stroke-width='1.4'%3E%3Cpath d='M22 42c-9-2-13-10-10-17 3-8 11-11 18-8 2-7 10-10 16-7 6 3 9 9 7 15 7 1 10 8 8 14'/%3E%3Cpath d='M108 132c-9-2-13-10-10-17 3-8 11-11 18-8 2-7 10-10 16-7 6 3 9 9 7 15 7 1 10 8 8 14'/%3E%3Ccircle cx='138' cy='32' r='5'/%3E%3Ccircle cx='36' cy='140' r='5'/%3E%3C/g%3E%3C/svg%3E"),
+      repeating-linear-gradient(0deg, rgba(168,130,60,.03) 0 1px, transparent 1px 26px),
+      var(--paper);
+  }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  /* ===== 全局国风背景装饰（祥云 · 墨晕 · 飞鸟） ===== */
+  .bg-deco { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+  .bg-deco .cloud { position: absolute; color: var(--gold); opacity: .18; }
+  .cloud-a { width: 250px; top: 86px; right: -36px; animation: drift 26s ease-in-out infinite alternate; }
+  .cloud-b { width: 210px; bottom: 70px; left: -48px; transform: scaleX(-1);
+    animation: drift 32s ease-in-out infinite alternate-reverse; }
+  @keyframes drift { from { translate: 0 0; } to { translate: 26px 12px; } }
+  .bg-deco .birds { position: absolute; width: 110px; top: 160px; right: 240px;
+    color: var(--indigo); opacity: .24; }
+  .bg-deco .blob { position: absolute; border-radius: 46% 54% 58% 42% / 48% 42% 58% 52%; }
+  .blob-a { width: 480px; height: 420px; left: -170px; top: 30%;
+    background: radial-gradient(circle at 45% 45%, rgba(168,130,60,.12), rgba(168,130,60,.04) 62%, transparent 78%);
+    animation: morph 14s ease-in-out infinite alternate; }
+  .blob-b { width: 540px; height: 480px; right: -200px; top: 55%;
+    background: radial-gradient(circle at 50% 50%, rgba(154,45,42,.09), rgba(154,45,42,.03) 60%, transparent 76%);
+    animation: morph 18s ease-in-out infinite alternate-reverse; }
+  .blob-c { width: 400px; height: 340px; left: 10%; bottom: -90px;
+    background: radial-gradient(circle at 50% 55%, rgba(63,82,94,.09), rgba(63,82,94,.03) 60%, transparent 78%); }
+  @keyframes morph {
+    from { border-radius: 46% 54% 58% 42% / 48% 42% 58% 52%; }
+    to   { border-radius: 56% 44% 46% 54% / 44% 56% 44% 56%; }
+  }
+
+  /* ===== 顶栏 ===== */
+  .fret { height: 10px;
+    background: repeating-linear-gradient(90deg, var(--cinnabar) 0 12px, var(--gold) 12px 24px);
+    opacity: .85; }
+  nav { position: sticky; top: 0; z-index: 100;
+    background: rgba(246,241,230,.92); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); }
+  .nav-inner { max-width: 1180px; margin: 0 auto; padding: 0 24px; height: 62px;
+    display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .seal { width: 38px; height: 38px; background: var(--cinnabar); color: #f6f1e6;
+    border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    writing-mode: vertical-rl; font-size: 13px; font-weight: 700; letter-spacing: 2px;
+    box-shadow: 0 2px 8px rgba(122,33,30,.35); }
+  .brand b { font-size: 16px; letter-spacing: 2px; }
+  .nav-links { display: flex; gap: 24px; font-size: 14px; }
+  .nav-links a { color: var(--ink-soft); transition: color .25s var(--ease); }
+  .nav-links a:hover { color: var(--cinnabar); }
+
+  /* ===== 全幅渲图首屏 ===== */
+  .hero { position: relative; min-height: 92vh; display: flex; align-items: center; overflow: hidden; color: #f3ead6; }
+  .hero-bg { position: absolute; inset: 0; }
+  .hero-bg img { width: 100%; height: 100%; object-fit: cover; animation: heroZoom 18s ease-out forwards; }
+  @keyframes heroZoom { from { transform: scale(1.12); } to { transform: scale(1); } }
+  .hero-veil { position: absolute; inset: 0;
+    background: linear-gradient(100deg, rgba(24,19,12,.84) 0%, rgba(24,19,12,.64) 42%, rgba(24,19,12,.26) 75%, rgba(24,19,12,.46) 100%); }
+  .hero-inner { position: relative; z-index: 2; max-width: 1180px; width: 100%;
+    margin: 0 auto; padding: 130px 24px 100px; }
+  .hero-eyebrow { color: #d8b96a; letter-spacing: 6px; font-size: 13.5px; margin-bottom: 24px; }
+  .hero h1 { font-size: clamp(48px, 7.2vw, 94px); font-weight: 900; letter-spacing: 8px;
+    line-height: 1.28; text-shadow: 0 4px 26px rgba(0,0,0,.55); }
+  .hero h1 em { font-style: normal; color: #e2695f; }
+  .hero .sub { font-size: clamp(16px, 2.3vw, 21px); letter-spacing: 3px; margin: 20px 0 28px;
+    color: #e8dcc0; text-shadow: 0 2px 12px rgba(0,0,0,.5); }
+  .hero .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 40px; }
+  .chip { padding: 7px 17px; border-radius: 999px; font-size: 13.5px; letter-spacing: 1px;
+    background: rgba(243,234,214,.12); border: 1px solid rgba(243,234,214,.35); color: #efe8d6;
+    backdrop-filter: blur(4px); }
+  .chip.red { background: rgba(154,45,42,.55); border-color: rgba(226,105,95,.6); color: #fff; }
+  .hero-btns { display: flex; gap: 16px; flex-wrap: wrap; }
+  .btn { padding: 14px 36px; border-radius: 999px; font-size: 15.5px; font-weight: 700;
+    letter-spacing: 2px; transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s; }
+  .btn-main { background: var(--cinnabar); color: #fff; box-shadow: 0 8px 24px rgba(122,33,30,.5); }
+  .btn-main:hover { transform: translateY(-3px); background: #b03a36; box-shadow: 0 14px 32px rgba(122,33,30,.55); }
+  .btn-ghost { border: 1.5px solid rgba(243,234,214,.55); color: #f3ead6; backdrop-filter: blur(4px); }
+  .btn-ghost:hover { background: rgba(243,234,214,.14); transform: translateY(-3px); }
+  .hero-seal { position: absolute; right: 6%; top: 15%; z-index: 2;
+    width: 100px; height: 100px; border: 3px solid rgba(226,105,95,.9); border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; color: #e2695f;
+    writing-mode: vertical-rl; font-size: 24px; font-weight: 800; letter-spacing: 6px;
+    background: rgba(20,15,10,.35); backdrop-filter: blur(2px); transform: rotate(4deg); }
+  .scroll-hint { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 2; color: rgba(243,234,214,.8); font-size: 12.5px; letter-spacing: 4px;
+    animation: bob 2.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translate(-50%,0);} 50% { transform: translate(-50%,8px);} }
+
+  /* ===== 分镜跑马灯 ===== */
+  .marquee { overflow: hidden; background: var(--ink); padding: 22px 0; }
+  .marquee-track { display: flex; gap: 18px; width: max-content; animation: scrollX 55s linear infinite; }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  @keyframes scrollX { to { transform: translateX(-50%); } }
+  .marquee figure { position: relative; flex-shrink: 0; }
+  .marquee img { height: 220px; width: auto; border-radius: 12px;
+    border: 3px solid rgba(243,234,214,.85); opacity: .92; transition: opacity .3s, transform .3s var(--ease); }
+  .marquee figure:hover img { opacity: 1; transform: scale(1.04); }
+  .marquee figcaption { position: absolute; left: 10px; bottom: 10px;
+    background: rgba(24,19,12,.72); color: #efe8d6; font-size: 12.5px;
+    padding: 3px 12px; border-radius: 999px; letter-spacing: 2px; }
+
+  /* ===== 通用章节 ===== */
+  section { max-width: 1180px; margin: 0 auto; padding: 104px 24px 0; }
+  .sec-head { display: flex; align-items: baseline; gap: 18px; margin-bottom: 46px;
+    border-bottom: 1px solid var(--border); padding-bottom: 18px; }
+  .sec-head .zh-num { font-size: 15px; color: #f6f1e6; background: var(--cinnabar);
+    width: 42px; height: 42px; border-radius: 9px; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0; align-self: center; font-weight: 700; }
+  .sec-head h2 { font-size: clamp(28px, 3.4vw, 36px); font-weight: 900; letter-spacing: 5px; }
+  .sec-head .en { color: var(--gold); letter-spacing: 4px; font-size: 12.5px; text-transform: uppercase; }
+  .sec-head .tail { margin-left: auto; color: var(--ink-soft); font-size: 13.5px; letter-spacing: 1px; }
+
+  .card { background: rgba(255,253,247,.9); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px 24px; box-shadow: var(--shadow-soft);
+    transition: transform .35s var(--ease), box-shadow .35s var(--ease); }
+  .card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lift); }
+  .card h3 { font-weight: 800; }
+  .card p { line-height: 1.9; }
+
+  /* ===== 壹 · 成片首映（页面C位） ===== */
+  .film-note { max-width: 760px; margin: 0 auto 34px; text-align: center;
+    color: var(--ink-soft); font-size: 15.5px; letter-spacing: 1px; }
+  .film-note b { color: var(--cinnabar); }
+  .film-wrap { position: relative; max-width: 1120px; margin: 0 auto; }
+  .film-cloud { position: absolute; top: 50%; translate: 0 -50%; width: 230px; color: var(--gold); opacity: .45; }
+  .fc-l { left: 0; }
+  .fc-r { right: 0; transform: scaleX(-1); }
+  .video-stage { max-width: 500px; margin: 0 auto; position: relative;
+    background: linear-gradient(160deg, #2e2921, #17130d); border-radius: 26px; padding: 18px;
+    border: 1px solid rgba(168,130,60,.45);
+    box-shadow: 0 30px 80px rgba(30,25,15,.45), 0 0 0 10px rgba(168,130,60,.07);
+    transition: transform .4s var(--ease), box-shadow .4s var(--ease); }
+  .video-stage:hover { transform: translateY(-6px);
+    box-shadow: 0 40px 96px rgba(30,25,15,.55), 0 0 0 10px rgba(168,130,60,.12); }
+  .video-stage::before { content: "首映"; position: absolute; top: -15px; left: 34px; z-index: 3;
+    background: var(--cinnabar); color: #f6f1e6; font-size: 13px; padding: 4px 20px;
+    border-radius: 4px; letter-spacing: 5px; box-shadow: 0 4px 12px rgba(122,33,30,.4); }
+  .video-stage .cn { position: absolute; width: 26px; height: 26px; border: 2px solid var(--gold); opacity: .85; }
+  .cn1 { top: 9px; left: 9px; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; }
+  .cn2 { top: 9px; right: 9px; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; }
+  .cn3 { bottom: 9px; left: 9px; border-right: none; border-top: none; border-radius: 0 0 0 8px; }
+  .cn4 { bottom: 9px; right: 9px; border-left: none; border-top: none; border-radius: 0 0 8px 0; }
+  video { width: 100%; display: block; border-radius: 14px; aspect-ratio: 9/16;
+    max-height: 84vh; object-fit: contain; background: #000; }
+  .video-chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .v-chip { padding: 9px 22px; border-radius: 999px; background: rgba(255,253,247,.9);
+    border: 1px solid var(--border); font-size: 13.5px; color: var(--ink-soft);
+    letter-spacing: 1px; box-shadow: var(--shadow-soft); }
+  .v-chip b { color: var(--cinnabar); }
+
+  /* ===== 贰 · 选题（左图右卡） ===== */
+  .topic-lead { font-size: clamp(20px, 2.8vw, 27px); text-align: center; line-height: 2.1;
+    max-width: 840px; margin: 0 auto 44px; letter-spacing: 2px; }
+  .topic-lead b { color: var(--cinnabar); }
+  .topic-flex { display: grid; grid-template-columns: .92fr 1.08fr; gap: 30px; align-items: stretch; }
+  .topic-img { border-radius: var(--radius); overflow: hidden; position: relative;
+    box-shadow: var(--shadow-lift); border: 5px solid rgba(255,253,247,.95); outline: 1px solid var(--border);
+    min-height: 320px; transition: transform .4s var(--ease), box-shadow .4s var(--ease); }
+  .topic-img:hover { transform: translateY(-5px); }
+  .topic-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    transition: transform .8s var(--ease); }
+  .topic-img:hover img { transform: scale(1.05); }
+  .topic-img figcaption { position: absolute; left: 14px; bottom: 14px; z-index: 2;
+    background: rgba(24,19,12,.72); color: #efe8d6; font-size: 13px;
+    padding: 5px 16px; border-radius: 999px; letter-spacing: 3px; }
+  .topic-cards { display: flex; flex-direction: column; gap: 18px; }
+  .topic-cards .card { display: grid; grid-template-columns: 48px 1fr; gap: 16px;
+    align-items: start; flex: 1; }
+  .zi-badge { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid var(--gold); border-radius: 10px; background: rgba(255,253,247,.75);
+    color: var(--cinnabar); font-size: 21px; font-weight: 700; }
+  .topic-cards h3 { font-size: 17px; color: var(--cinnabar); letter-spacing: 2px; margin-bottom: 5px; }
+  .topic-cards p { font-size: 14.5px; color: var(--ink-soft); }
+
+  /* ===== 叁 · 策划 ===== */
+  .plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 52px; }
+  .plan-grid .card h3 { font-size: 16px; letter-spacing: 2px; margin: 12px 0 6px; }
+  .plan-grid .card p { font-size: 13.5px; color: var(--ink-soft); }
+  .zi-sq { width: 44px; height: 44px; border-radius: 11px; background: var(--paper-deep);
+    border: 1px solid var(--gold); display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700; color: var(--cinnabar); }
+  .flow { display: flex; align-items: stretch; justify-content: center; flex-wrap: nowrap; }
+  .flow-col { flex: 1; min-width: 0; text-align: center; position: relative; padding: 0 4px; }
+  .flow-dot { width: 60px; height: 60px; margin: 0 auto 12px; border-radius: 50%;
+    background: rgba(255,253,247,.95); border: 2px solid var(--gold);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px; font-weight: 700; color: var(--cinnabar);
+    position: relative; z-index: 2; transition: transform .3s var(--ease), border-color .3s;
+    box-shadow: var(--shadow-soft); }
+  .flow-col:hover .flow-dot { transform: scale(1.1); border-color: var(--cinnabar); }
+  .flow-col b { display: block; font-size: 14.5px; letter-spacing: 1px; }
+  .flow-col span { font-size: 12px; color: var(--ink-soft); }
+  .flow-col::after { content: ""; position: absolute; top: 30px; left: calc(50% + 36px);
+    width: calc(100% - 72px); border-top: 2px dashed var(--border); }
+  .flow-col:last-child::after { display: none; }
+  .flow-col.human .flow-dot { border-color: var(--cinnabar); background: rgba(154,45,42,.08); }
+  .flow-col.human b { color: var(--cinnabar); }
+  .flow-legend { text-align: center; margin-top: 22px; font-size: 13px; color: var(--ink-soft); }
+  .flow-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 6px 0 14px; }
+
+  /* ===== 诗词横幅（图片带） ===== */
+  .quote-band { position: relative; height: 320px; overflow: hidden; margin-top: 104px; }
+  .quote-band img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    object-position: center 30%; }
+  .qb-veil { position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(24,19,12,.35), rgba(24,19,12,.66)); }
+  .qb-text { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; color: #f3ead6; text-align: center; padding: 0 24px; }
+  .qb-text p { font-size: clamp(20px, 3vw, 30px); letter-spacing: 8px; line-height: 2;
+    text-shadow: 0 3px 16px rgba(0,0,0,.55); }
+  .qb-text span { margin-top: 12px; font-size: 14px; letter-spacing: 4px; opacity: .85; }
+
+  /* ===== 肆 · 素材 + 音频 ===== */
+  .asset-row { display: grid; grid-template-columns: 1.05fr .95fr; gap: 28px; align-items: stretch; }
+  .asset-chips { display: flex; flex-direction: column; gap: 15px; }
+  .a-chip { display: flex; gap: 16px; align-items: center; background: rgba(255,253,247,.9);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 17px 20px;
+    box-shadow: var(--shadow-soft); transition: transform .35s var(--ease), box-shadow .35s var(--ease); }
+  .a-chip:hover { transform: translateX(6px); box-shadow: var(--shadow-lift); }
+  .a-chip .ico { width: 44px; height: 44px; border-radius: 50%; background: var(--paper-deep);
+    border: 1px solid var(--gold); display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700; color: var(--cinnabar); flex-shrink: 0; }
+  .a-chip b { font-size: 15.5px; letter-spacing: 1px; display: block; }
+  .a-chip span { font-size: 13px; color: var(--ink-soft); }
+  .audio-card { background: linear-gradient(150deg, #3f525e, #26333c); border-radius: 20px;
+    color: #efe8d6; padding: 30px 28px; display: flex; flex-direction: column; justify-content: center;
+    box-shadow: 0 16px 44px rgba(38,51,60,.4); position: relative; overflow: hidden; }
+  .audio-card::before { content: "音"; position: absolute; right: -12px; bottom: -34px;
+    font-size: 130px; opacity: .07; font-weight: 900; }
+  .audio-head { display: flex; align-items: center; gap: 18px; margin-bottom: 20px; }
+  .disc { width: 86px; height: 86px; border-radius: 50%; flex-shrink: 0;
+    background: radial-gradient(circle at 34% 30%, #6b7d89, #1c2429 68%);
+    display: flex; align-items: center; justify-content: center; font-size: 30px; color: #d8c9a3;
+    box-shadow: inset 0 0 0 9px rgba(246,241,230,.09), 0 8px 20px rgba(0,0,0,.35); }
+  .disc.spin { animation: spin 6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .audio-head h4 { font-size: 18px; letter-spacing: 1.5px; }
+  .audio-head p { font-size: 12.5px; opacity: .75; }
+  .audio-card audio { width: 100%; }
+  .audio-tail { margin-top: 14px; font-size: 12.5px; opacity: .7; letter-spacing: 1px; }
+
+  /* ===== 口播文稿 · 竖排书卷 ===== */
+  .script-scroll { margin-top: 30px; display: flex; gap: 26px; align-items: stretch;
+    background: linear-gradient(120deg, rgba(237,229,210,.75), rgba(255,253,247,.92));
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 32px;
+    position: relative; box-shadow: var(--shadow-soft); }
+  .script-scroll::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 6px;
+    background: linear-gradient(180deg, var(--cinnabar), var(--gold)); border-radius: 0 18px 18px 0; }
+  .ss-label { writing-mode: vertical-rl; font-size: 16px; font-weight: 800; letter-spacing: 10px;
+    color: #f6f1e6; background: var(--cinnabar); padding: 16px 9px; border-radius: 8px; flex-shrink: 0; }
+  .ss-body { writing-mode: vertical-rl; height: 270px; flex: 1; overflow-x: auto; }
+  .ss-body p { font-size: 15px; letter-spacing: 5px; line-height: 2.4; color: var(--ink); margin-left: 22px; }
+  .ss-body p:first-child { margin-right: 4px; }
+  .ss-body .ss-final { color: var(--cinnabar); font-weight: 700; }
+
+  /* ===== 伍 · 分镜图卷 ===== */
+  .shots-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
+  .shot-card { background: rgba(255,253,247,.93); border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-soft);
+    transition: transform .35s var(--ease), box-shadow .35s var(--ease); }
+  .shot-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-lift); }
+  .shot-img { position: relative; cursor: zoom-in; overflow: hidden; }
+  .shot-img img { width: 100%; aspect-ratio: 9/13; object-fit: cover; transition: transform .6s var(--ease); }
+  .shot-card:hover .shot-img img { transform: scale(1.05); }
+  .shot-img .time { position: absolute; left: 10px; top: 10px; background: rgba(44,40,34,.78);
+    color: #efe8d6; font-size: 12px; padding: 3px 10px; border-radius: 999px; letter-spacing: 1px;
+    font-family: Consolas, monospace; }
+  .shot-img .zm { position: absolute; right: 10px; bottom: 10px; width: 30px; height: 30px;
+    background: rgba(246,241,230,.9); border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 15px; color: var(--cinnabar); opacity: 0; transition: opacity .3s; }
+  .shot-card:hover .zm { opacity: 1; }
+  .shot-body { padding: 15px 18px 17px; }
+  .shot-body h4 { font-size: 15.5px; letter-spacing: 1.5px; margin-bottom: 4px; font-weight: 800; }
+  .shot-body h4 i { font-style: normal; color: var(--gold); font-size: 12.5px; margin-right: 6px; }
+  .shot-body p { font-size: 13px; color: var(--ink-soft); }
+  .shots-hint { text-align: center; color: var(--ink-soft); font-size: 13px; margin-top: 24px; letter-spacing: 1px; }
+
+  /* ===== 陆 · 总结 ===== */
+  .sum-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .sum-grid .card { border-top: 3px solid var(--cinnabar); }
+  .sum-grid .zi-badge { width: 42px; height: 42px; font-size: 19px; border-radius: 9px; margin-bottom: 12px; }
+  .sum-grid h3 { font-size: 16px; letter-spacing: 2px; margin-bottom: 8px; }
+  .sum-grid p { font-size: 13.5px; color: var(--ink-soft); }
+
+  /* ===== 尾声 ===== */
+  .outro { margin-top: 110px; text-align: center; padding: 100px 24px 160px; position: relative;
+    background: linear-gradient(180deg, transparent, rgba(237,229,210,.9)); }
+  .outro .poem { font-size: clamp(22px, 3.4vw, 32px); letter-spacing: 8px; line-height: 2; }
+  .outro .poem b { color: var(--cinnabar); }
+  .outro .src { color: var(--ink-soft); font-size: 13.5px; letter-spacing: 3px; margin-top: 12px; }
+  .mountains { position: absolute; left: 0; right: 0; bottom: -1px; width: 100%; height: 120px; }
+
+  footer { background: var(--ink); color: #b7ad99; text-align: center;
+    padding: 28px 24px 32px; font-size: 13px; letter-spacing: 1px; }
+  footer b { color: #e8dcc0; }
+
+  .lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(20,17,12,.88);
+    display: none; align-items: center; justify-content: center; padding: 30px; cursor: zoom-out; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-height: 92vh; max-width: 90vw; border-radius: 14px;
+    border: 6px solid rgba(246,241,230,.92); box-shadow: 0 24px 70px rgba(0,0,0,.6); }
+
+  .reveal { opacity: 0; transform: translateY(26px); transition: opacity .9s var(--ease), transform .9s var(--ease); }
+  .reveal.show { opacity: 1; transform: none; }
+
+  @media (max-width: 960px) {
+    .topic-flex { grid-template-columns: 1fr; }
+    .topic-img { min-height: 260px; }
+    .plan-grid, .sum-grid { grid-template-columns: repeat(2, 1fr); }
+    .shots-grid { grid-template-columns: repeat(2, 1fr); }
+    .asset-row { grid-template-columns: 1fr; }
+    .flow { flex-wrap: wrap; row-gap: 28px; }
+    .flow-col { flex: 1 1 30%; }
+    .flow-col::after { display: none; }
+    .hero-seal { display: none; }
+    .marquee img { height: 150px; }
+    .film-cloud { display: none; }
+    .bg-deco .birds { display: none; }
+    section { padding-top: 76px; }
+    .quote-band { height: 250px; margin-top: 76px; }
+    .script-scroll { flex-direction: column; gap: 16px; }
+    .ss-label { writing-mode: horizontal-tb; padding: 6px 16px; letter-spacing: 6px; align-self: flex-start; }
+    .ss-body { writing-mode: horizontal-tb; height: auto; overflow-x: visible; }
+    .ss-body p { margin: 0 0 8px; line-height: 1.9; letter-spacing: 1.5px; }
+  }
+  @media (max-width: 620px) {
+    .nav-links { display: none; }
+    .plan-grid, .sum-grid { grid-template-columns: 1fr; }
+    .shots-grid { grid-template-columns: 1fr; }
+    .marquee img { height: 116px; }
+    .video-stage { max-width: min(420px, 90vw); }
+  }
+</style>
+</head>
+<body>
+
+<!-- 全局国风背景装饰：祥云 · 不规则墨晕 · 飞鸟 -->
+<div class="bg-deco" aria-hidden="true">
+  <svg class="cloud cloud-a" viewBox="0 0 220 100" fill="none">
+    <g stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <path d="M38 74c-14 0-24-9-24-20 0-10 8-18 18-18 2-11 11-19 22-19 8 0 15 4 19 10 4-6 11-10 19-10 12 0 21 8 23 19 10 1 18 9 18 18 0 11-10 20-24 20z"/>
+      <path d="M70 41c-6 1-10 6-10 12"/><path d="M118 39c6 1 10 6 10 12"/>
+      <path d="M158 74c16 0 30-3 40-9"/><path d="M166 84c13 0 24-3 32-8"/>
+    </g>
+  </svg>
+  <svg class="cloud cloud-b" viewBox="0 0 220 100" fill="none">
+    <g stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <path d="M38 74c-14 0-24-9-24-20 0-10 8-18 18-18 2-11 11-19 22-19 8 0 15 4 19 10 4-6 11-10 19-10 12 0 21 8 23 19 10 1 18 9 18 18 0 11-10 20-24 20z"/>
+      <path d="M70 41c-6 1-10 6-10 12"/><path d="M118 39c6 1 10 6 10 12"/>
+      <path d="M158 74c16 0 30-3 40-9"/><path d="M166 84c13 0 24-3 32-8"/>
+    </g>
+  </svg>
+  <svg class="birds" viewBox="0 0 120 60" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M10 30q8-12 16 0M26 30q8-12 16 0"/>
+    <path d="M62 18q6-9 12 0M74 18q6-9 12 0"/>
+    <path d="M92 38q5-8 10 0M102 38q5-8 10 0"/>
+  </svg>
+  <div class="blob blob-a"></div>
+  <div class="blob blob-b"></div>
+  <div class="blob blob-c"></div>
+</div>
+
+<div class="fret"></div>
+<nav>
+  <div class="nav-inner">
+    <a class="brand" href="#top"><div class="seal">紅樓</div><b>AI Agent 名著讲解</b></a>
+    <div class="nav-links">
+      <a href="#film">成片</a><a href="#topic">选题</a><a href="#plan">策划</a>
+      <a href="#assets">素材</a><a href="#shots">分镜</a><a href="#summary">总结</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ 全幅渲图首屏 ============ -->
+<header class="hero" id="top">
+  <div class="hero-bg"><img src="assets/images/poster.jpg" alt="红楼梦视频封面"></div>
+  <div class="hero-veil"></div>
+  <div class="hero-seal">紅樓一夢</div>
+  <div class="hero-inner">
+    <div class="hero-eyebrow">AI AGENT · AUTOMATED STORYTELLING</div>
+    <h1>一部<em>红楼梦</em>，<br>写尽繁华与苍凉</h1>
+    <p class="sub">基于 AI Agent 的名著讲解有声视频自动化剪辑</p>
+    <div class="chips">
+      <span class="chip red">Agent 流水线</span>
+      <span class="chip">TTS 配音</span>
+      <span class="chip">国风 AI 插图</span>
+      <span class="chip">自动初剪 + 人工精调</span>
+    </div>
+    <div class="hero-btns">
+      <a class="btn btn-main" href="#film">▶ 立即观影</a>
+      <a class="btn btn-ghost" href="#shots">览分镜图卷</a>
+    </div>
+  </div>
+  <div class="scroll-hint">▼ 下滑览阅</div>
+</header>
+
+<!-- ============ 分镜跑马灯 ============ -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <figure><img src="assets/images/shot1.jpg" alt=""><figcaption>镜一 · 开篇</figcaption></figure>
+    <figure><img src="assets/images/shot2.jpg" alt=""><figcaption>镜二 · 大观园</figcaption></figure>
+    <figure><img src="assets/images/shot3.jpg" alt=""><figcaption>镜三 · 宝黛初见</figcaption></figure>
+    <figure><img src="assets/images/shot4.jpg" alt=""><figcaption>镜四 · 纠葛深渊</figcaption></figure>
+    <figure><img src="assets/images/shot5.jpg" alt=""><figcaption>镜五 · 黛玉葬花</figcaption></figure>
+    <figure><img src="assets/images/shot6.jpg" alt=""><figcaption>镜六 · 抄家败落</figcaption></figure>
+    <figure><img src="assets/images/shot7.jpg" alt=""><figcaption>镜七 · 白茫茫大地</figcaption></figure>
+    <figure><img src="assets/images/shot1.jpg" alt=""><figcaption>镜一 · 开篇</figcaption></figure>
+    <figure><img src="assets/images/shot2.jpg" alt=""><figcaption>镜二 · 大观园</figcaption></figure>
+    <figure><img src="assets/images/shot3.jpg" alt=""><figcaption>镜三 · 宝黛初见</figcaption></figure>
+    <figure><img src="assets/images/shot4.jpg" alt=""><figcaption>镜四 · 纠葛深渊</figcaption></figure>
+    <figure><img src="assets/images/shot5.jpg" alt=""><figcaption>镜五 · 黛玉葬花</figcaption></figure>
+    <figure><img src="assets/images/shot6.jpg" alt=""><figcaption>镜六 · 抄家败落</figcaption></figure>
+    <figure><img src="assets/images/shot7.jpg" alt=""><figcaption>镜七 · 白茫茫大地</figcaption></figure>
+  </div>
+</div>
+
+<!-- ============ 壹 · 成片首映（C位） ============ -->
+<section id="film" style="padding-top:88px;">
+  <div class="sec-head reveal">
+    <div class="zh-num">壹</div><h2>成片首映</h2><span class="en">Final Cut</span>
+    <span class="tail">先看结果 · 再看门道</span>
+  </div>
+  <p class="film-note reveal">《红楼梦》名著有声讲解视频 —— <b>Agent 自动初剪</b> 与 <b>人工精调</b> 的最终成果，全片约 52 秒。</p>
+  <div class="film-wrap reveal">
+    <svg class="film-cloud fc-l" viewBox="0 0 220 100" fill="none" aria-hidden="true">
+      <g stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M38 74c-14 0-24-9-24-20 0-10 8-18 18-18 2-11 11-19 22-19 8 0 15 4 19 10 4-6 11-10 19-10 12 0 21 8 23 19 10 1 18 9 18 18 0 11-10 20-24 20z"/>
+        <path d="M70 41c-6 1-10 6-10 12"/><path d="M118 39c6 1 10 6 10 12"/>
+        <path d="M158 74c16 0 30-3 40-9"/><path d="M166 84c13 0 24-3 32-8"/>
+      </g>
+    </svg>
+    <svg class="film-cloud fc-r" viewBox="0 0 220 100" fill="none" aria-hidden="true">
+      <g stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M38 74c-14 0-24-9-24-20 0-10 8-18 18-18 2-11 11-19 22-19 8 0 15 4 19 10 4-6 11-10 19-10 12 0 21 8 23 19 10 1 18 9 18 18 0 11-10 20-24 20z"/>
+        <path d="M70 41c-6 1-10 6-10 12"/><path d="M118 39c6 1 10 6 10 12"/>
+        <path d="M158 74c16 0 30-3 40-9"/><path d="M166 84c13 0 24-3 32-8"/>
+      </g>
+    </svg>
+    <div class="video-stage">
+      <i class="cn cn1"></i><i class="cn cn2"></i><i class="cn cn3"></i><i class="cn cn4"></i>
+      <video controls preload="metadata" playsinline poster="assets/images/poster.jpg" src="assets/video.mp4"></video>
+    </div>
+  </div>
+  <div class="video-chips reveal">
+    <span class="v-chip">时长 <b>约 52″</b></span>
+    <span class="v-chip">画幅 <b>9:16 竖版</b></span>
+    <span class="v-chip">配音 <b>TTS 沉稳旁白</b></span>
+    <span class="v-chip">制作 <b>Agent 初剪 + 人工精调</b></span>
+  </div>
+</section>
+
+<!-- ============ 贰 · 选题 ============ -->
+<section id="topic">
+  <div class="sec-head reveal">
+    <div class="zh-num">贰</div><h2>选题缘起</h2><span class="en">Topic</span>
+    <span class="tail">为什么做 · 为什么是它</span>
+  </div>
+  <p class="topic-lead reveal">
+    传统剪辑<b>耗时长、重复多</b>——<br>
+    于是让 Agent 流水线接管生产，把人留给<b>立意与审美</b>。
+  </p>
+  <div class="topic-flex">
+    <figure class="topic-img reveal">
+      <img src="assets/images/shot2.jpg" alt="大观园鼎盛">
+      <figcaption>大观园 · 鼎盛之景</figcaption>
+    </figure>
+    <div class="topic-cards">
+      <div class="card reveal">
+        <div class="zi-badge">书</div>
+        <div><h3>以《红楼梦》为创作对象</h3>
+        <p>悲剧内核深沉，与沉静旁白和国风水墨的气质天然契合，也是对 AI 语义理解的真正考验。</p></div>
+      </div>
+      <div class="card reveal">
+        <div class="zi-badge">智</div>
+        <div><h3>用 Agent 搭建工作流</h3>
+        <p>自动完成文本拆解、TTS 配音、字幕生成、配图匹配与初剪，探索人机协作模式。</p></div>
+      </div>
+      <div class="card reveal">
+        <div class="zi-badge">思</div>
+        <div><h3>研究自动化的边界</h3>
+        <p>验证自动化剪辑的效率优势，也实测它在情绪节奏与氛围感上的局限。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 叁 · 策划 ============ -->
+<section id="plan">
+  <div class="sec-head reveal">
+    <div class="zh-num">叁</div><h2>项目策划</h2><span class="en">Planning</span>
+    <span class="tail">目标 · 叙事 · 流程 · 交付</span>
+  </div>
+  <div class="plan-grid">
+    <div class="card reveal"><div class="zi-sq">标</div><h3>作品目标</h3><p>一支国风名著讲解短视频 + 一套可复用的 Agent 制作流程。</p></div>
+    <div class="card reveal"><div class="zi-sq">叙</div><h3>叙事思路</h3><p>不复述剧情，聚焦悲剧内核：沉静旁白 × 国风画面 × 苍凉余韵。</p></div>
+    <div class="card reveal"><div class="zi-sq">程</div><h3>工作流程</h3><p>选题 → 文本 → TTS 文稿 → AI 配图 → 自动初剪 → 人工精调。</p></div>
+    <div class="card reveal"><div class="zi-sq">档</div><h3>页面目标</h3><p>本网页完整归档全流程成果，作为课程作业提交载体。</p></div>
+  </div>
+  <div class="flow reveal">
+    <div class="flow-col"><div class="flow-dot">选</div><b>名著选题</b><span>确立立意</span></div>
+    <div class="flow-col"><div class="flow-dot">文</div><b>文本处理</b><span>拆解提炼</span></div>
+    <div class="flow-col"><div class="flow-dot">音</div><b>TTS 文稿</b><span>Agent 生成</span></div>
+    <div class="flow-col"><div class="flow-dot">画</div><b>AI 配图</b><span>语义匹配</span></div>
+    <div class="flow-col"><div class="flow-dot">剪</div><b>自动初剪</b><span>音画对齐</span></div>
+    <div class="flow-col human"><div class="flow-dot">调</div><b>人工精调</b><span>审美把关</span></div>
+  </div>
+  <div class="flow-legend reveal">
+    <i style="background:var(--gold)"></i>AI 负责：标准化重复生产
+    <i style="background:var(--cinnabar)"></i>人工负责：立意 · 审美 · 氛围感
+  </div>
+</section>
+
+<!-- ============ 诗词横幅 ============ -->
+<div class="quote-band reveal">
+  <img src="assets/images/shot5.jpg" alt="黛玉葬花">
+  <div class="qb-veil"></div>
+  <div class="qb-text">
+    <p>质本洁来还洁去，一抔净土掩风流。</p>
+    <span>—— 《葬花吟》 ——</span>
+  </div>
+</div>
+
+<!-- ============ 肆 · 素材与配音 ============ -->
+<section id="assets">
+  <div class="sec-head reveal">
+    <div class="zh-num">肆</div><h2>项目素材</h2><span class="en">Assets</span>
+    <span class="tail">文本 · 音频 · 图像 · 产出物</span>
+  </div>
+  <div class="asset-row">
+    <div class="asset-chips reveal">
+      <div class="a-chip"><div class="ico">文</div><div><b>文本素材</b><span>《红楼梦》原著 · Agent 深度解读文稿 · 逐镜头 AI 绘图提示词</span></div></div>
+      <div class="a-chip"><div class="ico">图</div><div><b>图像素材</b><span>AI 生成国风水墨插图 · 9:16 竖版 · 七镜风格统一</span></div></div>
+      <div class="a-chip"><div class="ico">成</div><div><b>产出物</b><span>配音文稿 · 字幕文件 · 图片序列 · 自动初剪工程 · 成片</span></div></div>
+    </div>
+    <div class="audio-card reveal">
+      <div class="audio-head">
+        <div class="disc" id="disc">♪</div>
+        <div>
+          <h4>《红楼梦》讲解音频</h4>
+          <p>TTS 人声配音（小米 Mimo）· 沉稳旁白 · 约 52″</p>
+        </div>
+      </div>
+      <audio controls preload="metadata" src="assets/audio.mp3" id="vo-audio"></audio>
+      <p class="audio-tail">由 Agent 自动生成文稿后合成配音，语速 1.0x，句间自然停顿</p>
+    </div>
+  </div>
+
+  <!-- 口播文稿 · 竖排书卷 -->
+  <div class="script-scroll reveal">
+    <div class="ss-label">口播文稿</div>
+    <div class="ss-body">
+      <p>一部红楼梦，写尽了人间繁华与苍凉。</p>
+      <p>贾府鼎盛时，大观园里诗酒风流，百花争艳。</p>
+      <p>林黛玉寄人篱下，与宝玉一见如故，两颗心渐渐靠近。</p>
+      <p>可命运弄人，金玉良缘的传言，将三人推向纠葛深渊。</p>
+      <p>黛玉葬花，葬的是自己飘零的命运。</p>
+      <p>贾府抄家，树倒猢狲散，曾经的热闹化为泡影。</p>
+      <p>最终黛玉含恨而终，宝玉看破红尘出家而去。</p>
+      <p class="ss-final">正如书中所言：好一似食尽鸟投林，落了片白茫茫大地真干净。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 伍 · 分镜图卷 ============ -->
+<section id="shots">
+  <div class="sec-head reveal">
+    <div class="zh-num">伍</div><h2>七镜 · 分镜图卷</h2><span class="en">Storyboard</span>
+    <span class="tail">AI 配图 × 口播文案 × 时间戳</span>
+  </div>
+  <div class="shots-grid">
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:00–00:05</span><img src="assets/images/shot1.jpg" alt="开篇"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜一</i>开篇 · 繁华与苍凉</h4><p>一部红楼梦，写尽了人间繁华与苍凉。</p></div>
+    </div>
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:05–00:11</span><img src="assets/images/shot2.jpg" alt="大观园"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜二</i>大观园鼎盛</h4><p>贾府鼎盛时，诗酒风流，百花争艳。</p></div>
+    </div>
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:11–00:18</span><img src="assets/images/shot3.jpg" alt="宝黛初见"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜三</i>宝黛初见</h4><p>寄人篱下，一见如故，两心渐近。</p></div>
+    </div>
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:18–00:26</span><img src="assets/images/shot4.jpg" alt="纠葛深渊"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜四</i>纠葛深渊</h4><p>命运弄人，金玉良缘推三人入纠葛。</p></div>
+    </div>
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:26–00:31</span><img src="assets/images/shot5.jpg" alt="黛玉葬花"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜五</i>黛玉葬花</h4><p>葬的是花，更是自己飘零的命运。</p></div>
+    </div>
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:31–00:37</span><img src="assets/images/shot6.jpg" alt="抄家败落"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜六</i>抄家败落</h4><p>树倒猢狲散，热闹化为泡影。</p></div>
+    </div>
+    <div class="shot-card reveal">
+      <div class="shot-img"><span class="time">00:37–00:52</span><img src="assets/images/shot7.jpg" alt="白茫茫大地"><span class="zm">⤢</span></div>
+      <div class="shot-body"><h4><i>镜七</i>白茫茫大地</h4><p>食尽鸟投林，落了片白茫茫大地真干净。</p></div>
+    </div>
+    <div class="shot-card reveal" style="display:flex;align-items:center;justify-content:center;background:linear-gradient(150deg,rgba(154,45,42,.08),rgba(168,130,60,.08));">
+      <div style="text-align:center;padding:24px 18px;">
+        <div class="zi-badge" style="margin:0 auto 12px;">格</div>
+        <h4 style="font-size:16px;letter-spacing:2px;margin-bottom:8px;">统一风格标签</h4>
+        <p style="font-size:13px;color:var(--ink-soft);">电影感名著插画风<br>细腻神态 · 柔和光影<br>色彩克制 · 9:16 竖版</p>
+      </div>
+    </div>
+  </div>
+  <p class="shots-hint">点击任意分镜图可放大查看原图</p>
+</section>
+
+<!-- ============ 陆 · 总结 ============ -->
+<section id="summary">
+  <div class="sec-head reveal">
+    <div class="zh-num">陆</div><h2>总结与反思</h2><span class="en">Reflection</span>
+    <span class="tail">四点收获</span>
+  </div>
+  <div class="sum-grid">
+    <div class="card reveal">
+      <div class="zi-badge">速</div>
+      <h3>效率跃升</h3>
+      <p>流水线把数小时的"拆文—配音—配图—字幕—初剪"压缩至分钟级，重复劳动基本归零。</p>
+    </div>
+    <div class="card reveal">
+      <div class="zi-badge">诀</div>
+      <h3>提示词即画质</h3>
+      <p>统一风格标签 + 逐镜头描述，是七幅插图调性一致的关键；描述越具体，音画匹配度越高。</p>
+    </div>
+    <div class="card reveal">
+      <div class="zi-badge">韵</div>
+      <h3>局限在氛围感</h3>
+      <p>机器能对齐时间戳，却难以对齐情绪——节奏、衔接与断句仍须人来校准。</p>
+    </div>
+    <div class="card reveal">
+      <div class="zi-badge">衍</div>
+      <h3>流程可复用</h3>
+      <p>替换文本即可迁移至其他名著，形成"AI 标准化生产 + 人工个性化把关"的生产范式。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 尾声 ============ -->
+<div class="outro">
+  <div class="poem reveal">好一似食尽鸟投林<br>落了片<b>白茫茫大地</b>真干净</div>
+  <p class="src">—— 《红楼梦 · 收尾 · 飞鸟各投林》 ——</p>
+  <svg class="mountains" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,120 L0,86 Q90,40 190,78 Q260,96 340,70 Q430,38 540,74 Q620,98 700,72 Q790,40 900,76 Q980,100 1080,70 Q1170,42 1280,80 Q1360,102 1440,74 L1440,120 Z" fill="#3f525e" opacity=".18"/>
+    <path d="M0,120 L0,100 Q120,64 240,94 Q340,114 450,90 Q560,64 680,96 Q780,118 880,92 Q990,66 1110,98 Q1220,120 1320,94 Q1390,80 1440,96 L1440,120 Z" fill="#2c2822" opacity=".82"/>
+  </svg>
+</div>
+
+<footer>
+  基于 AI Agent 的名著讲解有声视频自动化剪辑 · 课程作业作品展示 · <b>2026</b><br>
+  AI 负责标准化生产 · 人工把关立意与审美
+</footer>
+
+<!-- 灯箱 -->
+<div class="lightbox" id="lightbox"><img id="lb-img" src="" alt="预览"></div>
+
+<script>
+  // 滚动入场
+  const io = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('show'); io.unobserve(e.target); } });
+  }, { threshold: .1 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // 唱片随播放旋转
+  const audio = document.getElementById('vo-audio');
+  const disc = document.getElementById('disc');
+  audio.addEventListener('play', () => disc.classList.add('spin'));
+  audio.addEventListener('pause', () => disc.classList.remove('spin'));
+  audio.addEventListener('ended', () => disc.classList.remove('spin'));
+
+  // 分镜灯箱
+  const lb = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lb-img');
+  document.querySelectorAll('.shot-img img').forEach(img => {
+    img.parentElement.addEventListener('click', () => {
+      lbImg.src = img.src; lb.classList.add('open');
+    });
+  });
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') lb.classList.remove('open'); });
+</script>
+</body>
+</html>
